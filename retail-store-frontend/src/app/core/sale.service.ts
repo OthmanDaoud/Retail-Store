@@ -1,12 +1,17 @@
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { environment } from '../../environments/environment';
-import { Sale } from './models';
+import { Paginated, Sale } from './models';
 
 export interface SaleLineInput {
   productId: number;
   quantity: number;
+}
+
+export interface SaleQuery {
+  page?: number;
+  limit?: number;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -18,8 +23,14 @@ export class SaleService {
     return this.http.post<Sale>(this.baseUrl, { items });
   }
 
-  list(): Observable<Sale[]> {
-    return this.http.get<Sale[]>(this.baseUrl);
+  list(query: SaleQuery = {}): Observable<Paginated<Sale>> {
+    let params = new HttpParams();
+    for (const [key, value] of Object.entries(query)) {
+      if (value !== undefined && value !== null) {
+        params = params.set(key, String(value));
+      }
+    }
+    return this.http.get<Paginated<Sale>>(this.baseUrl, { params });
   }
 
   get(id: number): Observable<Sale> {

@@ -12,7 +12,7 @@ import { SaleService } from '../../core/sale.service';
     <div class="flex items-center justify-between mb-5">
       <div>
         <h1 class="text-2xl font-bold tracking-tight text-slate-900">Sales</h1>
-        <p class="text-sm text-slate-500 mt-0.5">{{ sales().length }} transaction(s)</p>
+        <p class="text-sm text-slate-500 mt-0.5">{{ total() }} transaction(s)</p>
       </div>
     </div>
 
@@ -100,20 +100,68 @@ import { SaleService } from '../../core/sale.service';
         <p class="px-4 py-3 text-sm text-red-600 border-t border-slate-100" role="alert">{{ error() }}</p>
       }
     </div>
+
+    <div class="flex items-center justify-between mt-4 text-sm text-slate-600">
+      <span class="text-slate-500">
+        Page {{ page() }} of {{ totalPages() }}
+      </span>
+      <div class="flex items-center gap-2">
+        <button
+          type="button"
+          (click)="prevPage()"
+          [disabled]="page() <= 1"
+          class="inline-flex items-center gap-1 rounded-lg border border-slate-300 px-3 py-1.5 text-sm
+                 font-medium hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed
+                 transition-colors duration-150"
+        >
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.75 19.5 8.25 12l7.5-7.5"/>
+          </svg>
+          Prev
+        </button>
+        <button
+          type="button"
+          (click)="nextPage()"
+          [disabled]="page() >= totalPages()"
+          class="inline-flex items-center gap-1 rounded-lg border border-slate-300 px-3 py-1.5 text-sm
+                 font-medium hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed
+                 transition-colors duration-150"
+        >
+          Next
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m8.25 4.5 7.5 7.5-7.5 7.5"/>
+          </svg>
+        </button>
+      </div>
+    </div>
   `,
 })
 export class SalesListComponent {
   private readonly saleService = inject(SaleService);
   private readonly router = inject(Router);
 
+  readonly page = signal(1);
+  private readonly limit = 10;
+
   readonly sales = signal<Sale[]>([]);
+  readonly total = signal(0);
+  readonly totalPages = signal(1);
   readonly loading = signal(true);
   readonly error = signal<string | null>(null);
 
   constructor() {
-    this.saleService.list().subscribe({
-      next: (sales) => {
-        this.sales.set(sales);
+    this.loadSales();
+  }
+
+  private loadSales(): void {
+    this.loading.set(true);
+    this.error.set(null);
+
+    this.saleService.list({ page: this.page(), limit: this.limit }).subscribe({
+      next: (result) => {
+        this.sales.set(result.items);
+        this.total.set(result.total);
+        this.totalPages.set(Math.max(1, result.totalPages));
         this.loading.set(false);
       },
       error: () => {
@@ -121,6 +169,20 @@ export class SalesListComponent {
         this.loading.set(false);
       },
     });
+  }
+
+  prevPage(): void {
+    if (this.page() > 1) {
+      this.page.update((p) => p - 1);
+      this.loadSales();
+    }
+  }
+
+  nextPage(): void {
+    if (this.page() < this.totalPages()) {
+      this.page.update((p) => p + 1);
+      this.loadSales();
+    }
   }
 
   viewSale(id: number): void {

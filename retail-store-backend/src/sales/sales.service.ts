@@ -8,6 +8,7 @@ import { DataSource, Repository } from 'typeorm';
 import { Product } from '../products/product.entity';
 import { StockGateway } from '../stock/stock.gateway';
 import { CreateSaleDto } from './dto/create-sale.dto';
+import { QuerySalesDto } from './dto/query-sales.dto';
 import { SaleItem } from './sale-item.entity';
 import { Sale } from './sale.entity';
 
@@ -76,10 +77,16 @@ export class SalesService {
     return sale;
   }
 
-  findAll(): Promise<Sale[]> {
-    return this.salesRepository.find({
+  async findAll(query: QuerySalesDto) {
+    const { page, limit } = query;
+
+    const [items, total] = await this.salesRepository.findAndCount({
       order: { createdAt: 'DESC' },
+      skip: (page - 1) * limit,
+      take: limit,
     });
+
+    return { items, total, page, limit, totalPages: Math.ceil(total / limit) };
   }
 
   async findOne(id: number): Promise<Sale> {

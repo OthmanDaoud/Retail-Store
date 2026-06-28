@@ -1,9 +1,11 @@
 import { CurrencyPipe } from '@angular/common';
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnDestroy, computed, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
+import { Subscription } from 'rxjs';
 import { Product } from '../../core/models';
 import { ProductService } from '../../core/product.service';
 import { SaleService } from '../../core/sale.service';
+import { StockService } from '../../core/stock.service';
 
 interface CartLine {
   product: Product;
@@ -213,10 +215,12 @@ interface CartLine {
     </div>
   `,
 })
-export class CheckoutComponent {
+export class CheckoutComponent implements OnDestroy {
   private readonly productService = inject(ProductService);
   private readonly saleService = inject(SaleService);
+  private readonly stockService = inject(StockService);
   private readonly router = inject(Router);
+  private readonly stockSub: Subscription;
 
   private readonly allProducts = signal<Product[]>([]);
   readonly search = signal('');
@@ -246,6 +250,27 @@ export class CheckoutComponent {
         this.allProducts.set(result.items);
         this.loading.set(false);
       });
+
+    this.stockSub = this.stockService.onStockUpdated().subscribe(({ productId, newStock }) => {
+      this.allProducts.update((list) =>
+        list.map((p) => (p.id === productId ? { ...p, stockQuantity: newStock } : p)),
+      );
+      this.cart.update((lines) =>
+        lines.map((line) =>
+          line.product.id === productId
+            ? {
+                ...line,
+                product: { ...line.product, stockQuantity: newStock },
+                quantity: Math.min(line.quantity, newStock),
+              }
+            : line,
+        ).filter((line) => line.quantity > 0),
+      );
+    });
+  }
+
+  ngOnDestroy(): void {
+    this.stockSub.unsubscribe();
   }
 
   isInCart(productId: number): boolean {

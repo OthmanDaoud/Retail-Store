@@ -5,10 +5,12 @@ import {
   Param,
   ParseIntPipe,
   Post,
+  Query,
 } from '@nestjs/common';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { AuthUser } from '../common/decorators/current-user.decorator';
 import { CreateSaleDto } from './dto/create-sale.dto';
+import { QuerySalesDto } from './dto/query-sales.dto';
 import { SalesService } from './sales.service';
 
 @Controller('sales')
@@ -21,8 +23,8 @@ export class SalesController {
   }
 
   @Get()
-  findAll() {
-    return this.salesService.findAll();
+  findAll(@Query() query: QuerySalesDto) {
+    return this.salesService.findAll(query);
   }
 
   @Get(':id')

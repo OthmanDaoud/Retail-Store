@@ -18,8 +18,8 @@ services:
   backend:
     build: ./retail-store-backend
     restart: unless-stopped
-    env_file: ./retail-store-backend/.env
     environment:
+      JWT_SECRET: fLAahHxAThKO8vyeaYrPFXUWYCise1Uj8nQCZnMi9G0=
       DB_HOST: db
       DB_PORT: 3306
       DB_NAME: retail_store
