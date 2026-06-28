@@ -2,6 +2,15 @@
 
 Inventory and point-of-sale app for a retail store. Built with Angular, NestJS, TypeORM, and MySQL.
 
+## Features
+
+- Product CRUD with search, filters, and pagination
+- POS checkout with stock updates and invoices
+- Real-time stock updates (WebSocket)
+- Sales history with pagination
+- Manager dashboard and role-based access
+- Dockerized frontend, backend, and MySQL
+
 ## Run with Docker
 
 ```bash
