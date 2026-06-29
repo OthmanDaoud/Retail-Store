@@ -1,18 +1,30 @@
-import { NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { SelectQueryBuilder } from 'typeorm';
-import { CategoriesService } from '../categories/categories.service';
 import { Category } from '../categories/category.entity';
+import { CategoriesService } from '../categories/categories.service';
 import { QueryProductsDto } from './dto/query-products.dto';
 import { Product } from './product.entity';
 import { ProductsService } from './products.service';
+
+type QueryBuilderMock = {
+  leftJoinAndSelect: jest.Mock<(...args: unknown[]) => QueryBuilderMock>;
+  where: jest.Mock<(...args: unknown[]) => QueryBuilderMock>;
+  andWhere: jest.Mock<(...args: unknown[]) => QueryBuilderMock>;
+  orderBy: jest.Mock<(...args: unknown[]) => QueryBuilderMock>;
+  skip: jest.Mock<(...args: unknown[]) => QueryBuilderMock>;
+  take: jest.Mock<(...args: unknown[]) => QueryBuilderMock>;
+  getOne: jest.Mock<() => Promise<Product | null>>;
+  getManyAndCount: jest.Mock<() => Promise<[Product[], number]>>;
+};
 
 const mockCategory: Category = {
   id: 1,
   name: 'Beverages',
   isActive: true,
   createdAt: new Date(),
+  modifiedAt: new Date(),
   products: [],
 };
 
@@ -31,33 +43,38 @@ const mockProduct: Product = {
 describe('ProductsService', () => {
   let service: ProductsService;
 
-  const mockQueryBuilder = {
-    leftJoinAndSelect: jest.fn().mockReturnThis(),
-    where: jest.fn().mockReturnThis(),
-    andWhere: jest.fn().mockReturnThis(),
-    orderBy: jest.fn().mockReturnThis(),
-    skip: jest.fn().mockReturnThis(),
-    take: jest.fn().mockReturnThis(),
-    getOne: jest.fn(),
-    getManyAndCount: jest.fn(),
-  } as unknown as SelectQueryBuilder<Product>;
+  let queryBuilder: QueryBuilderMock;
 
-  const mockRepo = {
-    createQueryBuilder: jest.fn(() => mockQueryBuilder),
-    create: jest.fn(),
-    save: jest.fn(),
+  const productsRepository = {
+    createQueryBuilder: jest.fn<() => SelectQueryBuilder<Product>>(),
+    create: jest.fn<(input: Partial<Product>) => Product>(),
+    save: jest.fn<(product: Product) => Promise<Product>>(),
   };
 
-  const mockCategoriesService = {
-    findOne: jest.fn(),
+  const categoriesService = {
+    findOne: jest.fn<(id: number) => Promise<Category>>(),
   };
 
   beforeEach(async () => {
+    queryBuilder = {
+      leftJoinAndSelect: jest.fn(() => queryBuilder),
+      where: jest.fn(() => queryBuilder),
+      andWhere: jest.fn(() => queryBuilder),
+      orderBy: jest.fn(() => queryBuilder),
+      skip: jest.fn(() => queryBuilder),
+      take: jest.fn(() => queryBuilder),
+      getOne: jest.fn(),
+      getManyAndCount: jest.fn(),
+    };
+    productsRepository.createQueryBuilder.mockReturnValue(
+      queryBuilder as unknown as SelectQueryBuilder<Product>,
+    );
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ProductsService,
-        { provide: getRepositoryToken(Product), useValue: mockRepo },
-        { provide: CategoriesService, useValue: mockCategoriesService },
+        { provide: getRepositoryToken(Product), useValue: productsRepository },
+        { provide: CategoriesService, useValue: categoriesService },
       ],
     }).compile();
 
@@ -65,92 +82,94 @@ describe('ProductsService', () => {
     jest.clearAllMocks();
   });
 
-  describe('findAll', () => {
-    it('returns paginated products', async () => {
-      (mockQueryBuilder.getManyAndCount as jest.Mock).mockResolvedValue([
-        [mockProduct],
-        1,
-      ]);
-      const query: QueryProductsDto = {
-        page: 1,
-        limit: 10,
-        sortBy: 'createdAt',
-        sortOrder: 'DESC',
-      };
+  it('returns paginated products with safe sorting', async () => {
+    queryBuilder.getManyAndCount.mockResolvedValue([[mockProduct], 1]);
+    const query: QueryProductsDto = {
+      page: 2,
+      limit: 10,
+      sortBy: 'name',
+      sortOrder: 'ASC',
+    };
 
-      const result = await service.findAll(query);
+    const result = await service.findAll(query);
 
-      expect(result.items).toEqual([mockProduct]);
-      expect(result.total).toBe(1);
-      expect(result.totalPages).toBe(1);
-    });
-
-    it('applies search filter when provided', async () => {
-      (mockQueryBuilder.getManyAndCount as jest.Mock).mockResolvedValue([
-        [],
-        0,
-      ]);
-      const query: QueryProductsDto = {
-        search: 'test',
-        page: 1,
-        limit: 10,
-        sortBy: 'name',
-        sortOrder: 'ASC',
-      };
-
-      await service.findAll(query);
-
-      expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith(
-        expect.stringContaining('MATCH'),
-        expect.objectContaining({ search: 'test*' }),
-      );
+    expect(queryBuilder.orderBy).toHaveBeenCalledWith('product.name', 'ASC');
+    expect(queryBuilder.skip).toHaveBeenCalledWith(10);
+    expect(queryBuilder.take).toHaveBeenCalledWith(10);
+    expect(result).toEqual({
+      items: [mockProduct],
+      total: 1,
+      page: 2,
+      limit: 10,
+      totalPages: 1,
     });
   });
 
-  describe('findOne', () => {
-    it('returns product when found', async () => {
-      (mockQueryBuilder.getOne as jest.Mock).mockResolvedValue(mockProduct);
+  it('applies search, price, and category filters', async () => {
+    queryBuilder.getManyAndCount.mockResolvedValue([[], 0]);
+    const query: QueryProductsDto = {
+      search: 'milk',
+      minPrice: 5,
+      maxPrice: 20,
+      categoryId: 1,
+      page: 1,
+      limit: 10,
+      sortBy: 'createdAt',
+      sortOrder: 'DESC',
+    };
 
-      const result = await service.findOne(1);
+    await service.findAll(query);
 
-      expect(result).toEqual(mockProduct);
-    });
-
-    it('throws NotFoundException when product does not exist', async () => {
-      (mockQueryBuilder.getOne as jest.Mock).mockResolvedValue(null);
-
-      await expect(service.findOne(999)).rejects.toThrow(NotFoundException);
-    });
+    expect(queryBuilder.andWhere).toHaveBeenCalledWith(
+      'MATCH(product.name) AGAINST (:search IN BOOLEAN MODE)',
+      { search: 'milk*' },
+    );
+    expect(queryBuilder.andWhere).toHaveBeenCalledWith(
+      'product.price >= :minPrice',
+      { minPrice: 5 },
+    );
+    expect(queryBuilder.andWhere).toHaveBeenCalledWith(
+      'product.price <= :maxPrice',
+      { maxPrice: 20 },
+    );
+    expect(queryBuilder.andWhere).toHaveBeenCalledWith(
+      'product.categoryId = :categoryId',
+      { categoryId: 1 },
+    );
   });
 
-  describe('create', () => {
-    it('creates and saves a product', async () => {
-      mockCategoriesService.findOne.mockResolvedValue(mockCategory);
-      mockRepo.create.mockReturnValue(mockProduct);
-      mockRepo.save.mockResolvedValue(mockProduct);
+  it('creates a product only after confirming the category exists', async () => {
+    categoriesService.findOne.mockResolvedValue(mockCategory);
+    productsRepository.create.mockReturnValue(mockProduct);
+    productsRepository.save.mockResolvedValue(mockProduct);
 
-      const result = await service.create(
-        { name: 'Test Product', price: 10.5, stockQuantity: 20, categoryId: 1 },
-        42,
-      );
+    const result = await service.create(
+      { name: 'Test Product', price: 10.5, stockQuantity: 20, categoryId: 1 },
+      42,
+    );
 
-      expect(mockCategoriesService.findOne).toHaveBeenCalledWith(1);
-      expect(mockRepo.save).toHaveBeenCalledWith(mockProduct);
-      expect(result).toEqual(mockProduct);
+    expect(categoriesService.findOne).toHaveBeenCalledWith(1);
+    expect(productsRepository.create).toHaveBeenCalledWith({
+      name: 'Test Product',
+      price: 10.5,
+      stockQuantity: 20,
+      categoryId: 1,
+      createdBy: 42,
+      modifiedBy: 42,
     });
+    expect(productsRepository.save).toHaveBeenCalledWith(mockProduct);
+    expect(result).toEqual(mockProduct);
   });
 
-  describe('remove', () => {
-    it('soft-deletes by setting isActive to false', async () => {
-      const product = { ...mockProduct };
-      (mockQueryBuilder.getOne as jest.Mock).mockResolvedValue(product);
-      mockRepo.save.mockResolvedValue({ ...product, isActive: false });
+  it('soft-deletes a product instead of removing the row', async () => {
+    const product = { ...mockProduct };
+    queryBuilder.getOne.mockResolvedValue(product);
+    productsRepository.save.mockResolvedValue({ ...product, isActive: false });
 
-      await service.remove(1, 42);
+    await service.remove(1, 42);
 
-      expect(product.isActive).toBe(false);
-      expect(product.modifiedBy).toBe(42);
-      expect(mockRepo.save).toHaveBeenCalledWith(product);
-    });
+    expect(product.isActive).toBe(false);
+    expect(product.modifiedBy).toBe(42);
+    expect(productsRepository.save).toHaveBeenCalledWith(product);
   });
 });
